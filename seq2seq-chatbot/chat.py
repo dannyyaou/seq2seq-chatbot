@@ -1,9 +1,10 @@
 """
 Script for chatting with a trained chatbot model
 """
+
 import datetime
 from os import path
-
+from bottle import route, run, template, request
 import general_utils
 import chat_command_handler
 from chat_settings import ChatSettings
@@ -31,50 +32,35 @@ chatlog_filepath = path.join(model_dir, "chat_logs", "chatlog_{0}.txt".format(da
 chat_settings = ChatSettings(hparams.model_hparams, hparams.inference_hparams)
 terminate_chat = False
 reload_model = False
-while not terminate_chat:
-    #Create the model
+#Create the model
+print()
+print("Initializing model..." if not reload_model else "Re-initializing model...")
+print()
+with ChatbotModel(mode = "infer",
+                  model_hparams = chat_settings.model_hparams,
+                  input_vocabulary = input_vocabulary,
+                  output_vocabulary = output_vocabulary,
+                  model_dir = model_dir) as model:
+
+    #Load the weights
     print()
-    print("Initializing model..." if not reload_model else "Re-initializing model...")
+    print("Loading model weights...")
     print()
-    with ChatbotModel(mode = "infer",
-                      model_hparams = chat_settings.model_hparams,
-                      input_vocabulary = input_vocabulary,
-                      output_vocabulary = output_vocabulary,
-                      model_dir = model_dir) as model:
+    model.load(checkpoint)
 
-        #Load the weights
-        print()
-        print("Loading model weights...")
-        print()
-        model.load(checkpoint)
+    #Show the commands
+    if not reload_model:
+        chat_command_handler.print_commands()
 
-        #Show the commands
-        if not reload_model:
-            chat_command_handler.print_commands()
+    running = True;
 
-        while True:
-            #Get the input and check if it is a question or a command, and execute if it is a command
-            question = input("You: ")
-            is_command, terminate_chat, reload_model = chat_command_handler.handle_command(question, model, chat_settings)
-            if terminate_chat or reload_model:
-                break
-            elif is_command:
-                continue
-            else:
-                #If it is not a command (it is a question), pass it on to the chatbot model to get the answer
-                question_with_history, answer = model.chat(question, chat_settings)
-                
-                #Print the answer or answer beams and log to chat log
-                if chat_settings.show_question_context:
-                    print("Question with history (context): {0}".format(question_with_history))
-                
-                if chat_settings.show_all_beams:
-                    for i in range(len(answer)):
-                        print("ChatBot (Beam {0}): {1}".format(i, answer[i]))
-                else:
-                    print("ChatBot: {0}".format(answer))
-                    
-                print()
-                
-                if chat_settings.inference_hparams.log_chat:
-                    chat_command_handler.append_to_chatlog(chatlog_filepath, question, answer)
+    while running:
+        running = False;
+        #Get the input and check if it is a question or a command, and execute if it is a command
+        @route('/chat')
+        def index():
+            question = request.query.question
+            question_with_history, answer = model.chat(question, chat_settings)
+            return template('answer: {{answer}}', answer=answer)
+
+        run(host='localhost', port=300)
